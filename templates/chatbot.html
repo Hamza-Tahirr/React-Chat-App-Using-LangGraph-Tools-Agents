@@ -60,12 +60,27 @@
         const sidebar = document.getElementById('sidebar');
         const sidebarToggle = document.getElementById('sidebarToggle');
         sidebarToggle.addEventListener('click', () => {
-            sidebar.classList.toggle('hidden');  // Show/hide sidebar
+            sidebar.classList.toggle('d-none');  // Show/hide sidebar
         });
 
         const chatForm = document.getElementById('chat-form');
         const chatBox = document.getElementById('chat-box');
         const spinner = document.getElementById('spinner');
+
+        // Uses textContent so messages are never parsed as HTML
+        function addMessage(sender, text, classes) {
+            const element = document.createElement('div');
+            element.classList.add(...classes);
+            const label = document.createElement('strong');
+            label.textContent = sender + ':';
+            element.append(label, ' ' + text);
+            chatBox.appendChild(element);
+            chatBox.scrollTop = chatBox.scrollHeight;  // Scroll to the bottom
+        }
+
+        function addBotMessage(text) {
+            addMessage('Bot', text, ['text-info', 'slide-in-left', 'bot-message']);
+        }
 
         chatForm.addEventListener('submit', function(e) {
             e.preventDefault();
@@ -75,10 +90,7 @@
             if (userMessage.trim() === '') return;
 
             // Slide-in user's message
-            const userMessageElement = document.createElement('div');
-            userMessageElement.classList.add('text-light', 'slide-in-right', 'user-message');
-            userMessageElement.innerHTML = `<strong>You:</strong> ${userMessage}`;
-            chatBox.appendChild(userMessageElement);
+            addMessage('You', userMessage, ['text-light', 'slide-in-right', 'user-message']);
 
             messageInput.value = '';
 
@@ -93,27 +105,26 @@
                 },
                 body: 'message=' + encodeURIComponent(userMessage)
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) throw new Error('Request failed: ' + response.status);
+                return response.json();
+            })
             .then(data => {
                 // Slide-in bot's response
-                const botMessageElement = document.createElement('div');
-                botMessageElement.classList.add('text-info', 'slide-in-left', 'bot-message');
-                botMessageElement.innerHTML = `<strong>Bot:</strong> ${data.response}`;
-                chatBox.appendChild(botMessageElement);
-
+                addBotMessage(data.response);
+            })
+            .catch(() => {
+                addBotMessage('Something went wrong. Please try again.');
+            })
+            .finally(() => {
                 // Hide loading spinner
                 spinner.classList.add('d-none');
-
-                chatBox.scrollTop = chatBox.scrollHeight;  // Scroll to the bottom
             });
         });
 
         // Initial prompt for IP address
         window.onload = function() {
-            const botMessageElement = document.createElement('div');
-            botMessageElement.classList.add('text-info', 'slide-in-left', 'bot-message');
-            botMessageElement.innerHTML = '<strong>Bot:</strong> Tell me your IP address.';
-            chatBox.appendChild(botMessageElement);
+            addBotMessage('Tell me your IP address.');
         };
     </script>
 </body>

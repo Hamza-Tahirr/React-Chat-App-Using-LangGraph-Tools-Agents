@@ -13,10 +13,6 @@ body {
     transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
 }
 
-.sidebar.hidden {
-    display: none;
-}
-
 .sidebar a {
     color: #f5f5f5;
     font-weight: bold;
@@ -111,6 +107,7 @@ body {
     margin-bottom: 10px;
     max-width: 75%;
     align-self: flex-start;
+    white-space: pre-wrap;
 }
 
 /* Animations */
