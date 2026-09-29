@@ -17,6 +17,7 @@ AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
 AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
 AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION")
+IPSTACK_API_KEY = os.getenv("IPSTACK_API_KEY")
 
 # Ensure the API key is loaded
 if not AZURE_OPENAI_API_KEY or not AZURE_OPENAI_ENDPOINT or not AZURE_OPENAI_DEPLOYMENT_NAME or not AZURE_OPENAI_API_VERSION:
@@ -43,12 +44,17 @@ llm = AzureChatOpenAI(
 
 # Flask app initialization
 app = Flask(__name__)
-app.secret_key = 'supersecretkey'  # For session management
+app.secret_key = os.getenv("FLASK_SECRET_KEY") or os.urandom(24)
 
 # Function to fetch IP details using IPStack API
 def fetch_ip_details(ip_address: str):
-    API_URL = f"https://api.ipstack.com/{ip_address}?access_key=b68789c2a59492afff58e8658831ade8"
-    response = requests.get(API_URL)
+    if not IPSTACK_API_KEY:
+        return {"error": "IPSTACK_API_KEY is not set"}
+    response = requests.get(
+        f"https://api.ipstack.com/{ip_address}",
+        params={"access_key": IPSTACK_API_KEY},
+        timeout=10,
+    )
     if response.status_code == 200:
         return response.json()
     else:
