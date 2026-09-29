@@ -1,3 +1,4 @@
+import ipaddress
 import os
 import requests
 from dotenv import load_dotenv
@@ -5,7 +6,7 @@ from flask import Flask, render_template, request, jsonify, session
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langchain_openai.chat_models.azure import AzureChatOpenAI
-from langchain.schema import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from typing import Annotated
 from typing_extensions import TypedDict
 
@@ -50,41 +51,44 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY") or os.urandom(24)
 def fetch_ip_details(ip_address: str):
     if not IPSTACK_API_KEY:
         return {"error": "IPSTACK_API_KEY is not set"}
-    response = requests.get(
-        f"https://api.ipstack.com/{ip_address}",
-        params={"access_key": IPSTACK_API_KEY},
-        timeout=10,
-    )
+    try:
+        response = requests.get(
+            f"https://api.ipstack.com/{ip_address}",
+            params={"access_key": IPSTACK_API_KEY},
+            timeout=10,
+        )
+    except requests.RequestException:
+        return {"error": "Failed to fetch IP details"}
     if response.status_code == 200:
         return response.json()
     else:
         return {"error": "Failed to fetch IP details"}
 
-# Create an LLM with tools
+# Answer with the LLM, or fall back to an IPStack lookup for the user's IP
 def chatbot(state: State):
     user_message = state["messages"][-1].content
-    
-    if "details of my IP" in user_message:
+
+    if "details of my ip" in user_message.lower():
         ip_address = state["ip_address"]
         ip_details = fetch_ip_details(ip_address)
-        return {"messages": [HumanMessage(content=str(ip_details))]}
-    
+        return {"messages": [AIMessage(content=str(ip_details))]}
+
     try:
-        messages = [HumanMessage(content=f"{SYSTEM_PROMPT}\nUser: {user_message}")]
-        llm_response = llm(messages=messages)
-        
+        messages = [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=user_message)]
+        llm_response = llm.invoke(messages)
+
         if not llm_response.content or "I'm sorry" in llm_response.content:
             ip_address = state["ip_address"]
             ip_details = fetch_ip_details(ip_address)
-            return {"messages": [HumanMessage(content=str(ip_details))]}
-        
-        return {"messages": [HumanMessage(content=llm_response.content)]}
-    
+            return {"messages": [AIMessage(content=str(ip_details))]}
+
+        return {"messages": [AIMessage(content=llm_response.content)]}
+
     except Exception as e:
         print(f"Error occurred: {e}")
         ip_address = state["ip_address"]
         ip_details = fetch_ip_details(ip_address)
-        return {"messages": [HumanMessage(content=str(ip_details))]}
+        return {"messages": [AIMessage(content=str(ip_details))]}
 
 # Add chatbot node to LangGraph
 graph_builder.add_node("chatbot", chatbot)
@@ -97,28 +101,31 @@ graph = graph_builder.compile()
 # Flask route for chatbot page
 @app.route('/')
 def index():
+    # The page always starts by asking for an IP, so drop any old one
+    session.pop('ip_address', None)
     return render_template('chatbot.html')
 
 # Flask route to handle user input (AJAX call)
 @app.route('/get_response', methods=['POST'])
 def get_response():
-    user_input = request.form['message']
-    
+    user_input = request.form.get('message', '').strip()
+
     if 'ip_address' not in session:
         # First interaction: Ask for the user's IP
+        try:
+            ipaddress.ip_address(user_input)
+        except ValueError:
+            return jsonify({'response': "That doesn't look like a valid IP address. Please try again."})
         session['ip_address'] = user_input  # Store the provided IP address in session
         response_message = "Ask me anything about your IP."
     else:
         # If IP is already provided, proceed with chatbot logic
         ip_address = session['ip_address']
-        events = graph.stream(
-            {"messages": [HumanMessage(content=user_input)], "ip_address": ip_address}, stream_mode="values"
+        result = graph.invoke(
+            {"messages": [HumanMessage(content=user_input)], "ip_address": ip_address}
         )
-        
-        # Get the final response from the events
-        for event in events:
-            response_message = event["messages"][-1].content
-    
+        response_message = result["messages"][-1].content
+
     return jsonify({'response': response_message})
 
 if __name__ == '__main__':
